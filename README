@@ -1,0 +1,206 @@
+# https://documentation.suse.com/suse-edge/3.0/html/edge/guides-metallb-k3s.html
+
+# Install k3s
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--tls-san 10.0.20.101 --tls-san 10.0.20.197" sh -
+sudo k3s kubectl get nodes
+
+mkdir ~/.kube
+sudo cat /etc/rancher/k3s/k3s.yaml | sed 's/127.0.0.1/10.0.20.101/g' > ~/.kube/config
+
+kubectl get ns
+NAME              STATUS   AGE
+default           Active   50s
+kube-node-lease   Active   50s
+kube-public       Active   50s
+kube-system       Active   50s
+
+# Install mettallb (DeepSeek)
+kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.10/config/manifests/metallb-native.yaml
+kubectl wait --namespace metallb-system --for=condition=ready pod --selector=app=metallb --timeout=90s
+
+cat <<EOF | kubectl apply -f -
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: dhcp-pool
+  namespace: metallb-system
+spec:
+  addresses:
+  - 10.0.20.150-10.0.20.190
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: l2advert
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+  - dhcp-pool
+EOF
+
+
+# Deploy a Test Service:
+kubectl create deployment nginx --image=nginx
+kubectl expose deployment nginx --port=80 --type=LoadBalancer
+
+ip=$(kubectl get svc nginx -o json | jq -r '.status.loadBalancer.ingress[].ip') 
+
+echo "curl http://$ip"
+
+
+# How to get the ingress ip address
+ kubectl get svc -n kube-system traefik
+NAME      TYPE           CLUSTER-IP     EXTERNAL-IP   PORT(S)                      AGE
+traefik   LoadBalancer   10.43.49.165   10.0.20.200   80:30726/TCP,443:31477/TCP   20m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Metallb
+--disable=servicelb
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--docker --tls-san 10.0.20.101 --tls-san 10.0.20.197" sh -
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable=servicelb --tls-san 10.0.20.101 --tls-san 10.0.20.197" sh -
+
+
+
+
+=> metallb-config.yaml
+# Install MetalLB for External LoadBalancer IPs
+sudo k3s kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.7/config/manifests/metallb-native.yaml
+sudo k3s kubectl -n metallb-system get pods
+
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  namespace: metallb-system
+  name: k3s-ip-pool
+spec:
+  addresses:
+  - 10.0.20.150-10.0.20.190
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  namespace: metallb-system
+  name: k3s-l2-advert
+spec:
+  ipAddressPools:
+  - k3s-ip-pool
+
+metallb-config.yaml
+
+# Uninstall
+sudo /usr/local/bin/k3s-uninstall.sh
+
+
+cat <<- EOF | kubectl apply -f -
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hello-kubernetes
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hello-kubernetes
+  namespace: hello-kubernetes
+  labels:
+    app.kubernetes.io/name: hello-kubernetes
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-kubernetes
+  namespace: hello-kubernetes
+  labels:
+    app.kubernetes.io/name: hello-kubernetes
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hello-kubernetes
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hello-kubernetes
+    spec:
+      serviceAccountName: hello-kubernetes
+      containers:
+        - name: hello-kubernetes
+          image: "paulbouwer/hello-kubernetes:1.10"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          env:
+          - name: HANDLER_PATH_PREFIX
+            value: ""
+          - name: RENDER_PATH_PREFIX
+            value: ""
+          - name: KUBERNETES_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: KUBERNETES_POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: KUBERNETES_NODE_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+          - name: CONTAINER_IMAGE
+            value: "paulbouwer/hello-kubernetes:1.10"
+EOF
+
+cat <<- EOF | kubectl apply -f -
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello-kubernetes
+  namespace: hello-kubernetes
+  labels:
+    app.kubernetes.io/name: hello-kubernetes
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: hello-kubernetes
+EOF
+Copy
+Let us see it in action:
+
+kubectl get svc -n hello-kubernetes
+
+
